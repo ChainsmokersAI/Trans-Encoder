@@ -5,13 +5,14 @@ from transformers import AutoTokenizer, AutoModel
 
 from models import BiEncoder, CrossEncoder
 from evaluation import evaluate
+from train import train
 
 def pseudo_label(
     type, # Model Type: bi2cross or cross2bi
     n_loop,
+    path_dataset,
     tokenizer,
     model,
-    path_dataset="../dataset/stsbenchmark/sts-train.csv",
     method="same"
 ):
     """
@@ -67,23 +68,36 @@ def pseudo_label(
             pseudo_labels.append(pred[0].item())
     torch.cuda.empty_cache()
         
-    # Append Pseudo-Label Column
+    # Update Pseudo-Label Column
     df_pseudo["pseudo_label"]=pseudo_labels
 
     ## 3. Save Dataset
     if type=="bi2cross":
-        df_pseudo.to_csv("../dataset/pseudo-labels_bi2cross_loop"+str(n_loop)+".csv")
+        path_target="../dataset/pseudo-labels_bi2cross_loop"+str(n_loop)+".csv"
     elif type=="cross2bi":
-        df_pseudo.to_csv("../dataset/pseudo-labels_cross2bi_loop"+str(n_loop)+".csv")
+        path_target="../dataset/pseudo-labels_cross2bi_loop"+str(n_loop)+".csv"
+
+    # Save as CSV
+    df_pseudo.to_csv(path_target, index=False)
+
+    return path_target
 
 def distill(
-    direction, # bi2cross or cross2bi
+    direction, # "bi2cross" or "cross2bi"
     n_loop,
-    path_dataset,
+    path_dataset="../dataset/stsbenchmark/sts-train.csv",
     path_bi_model=None,
     path_cross_model=None,
-    base_lm="roberta-base",
-    device_name="cpu"
+    base_bi_lm="princeton-nlp/unsup-simcse-roberta-base",
+    base_cross_lm="roberta-base",
+    device_name="cpu",
+    hyperparams={
+        "batch_size": 16,
+        "accum_steps": 1,
+        "lr": 5e-5,
+        "epochs": 5,
+        "loss_func": "BCE"
+    }
 ):
     """
     Distillation between Bi/Cross-Encoder
@@ -93,27 +107,29 @@ def distill(
     device=torch.device(device_name)
 
     ## 1. Load Pre-Trained (Distilled) LM
-    if direction=="bi2cross":
-        assert path_bi_model!=None, "Need Pre-Trained Bi-Encoder"
-    elif direction=="cross2bi":
+    if direction=="cross2bi":
         assert path_cross_model!=None, "Need Pre-Trained Cross-Encoder"
 
     # Load Bi-Encoder
-    if path_bi_model==None: path_bi_model=base_lm
+    tokenizer_bi=AutoTokenizer.from_pretrained(base_bi_lm)
+    model_bi=AutoModel.from_pretrained(base_bi_lm)
 
-    tokenizer_bi=AutoTokenizer.from_pretrained(path_bi_model)
-    model_bi=AutoModel.from_pretrained(path_bi_model)
+    enc_bi=BiEncoder(pretrained=model_bi)
+    if path_bi_model!=None:
+        enc_bi.load_state_dict(torch.load(path_bi_model))
 
-    enc_bi=BiEncoder(pretrained=model_bi).to(device)
+    enc_bi.to(device)
     enc_bi.eval()
 
     # Load Cross-Encoder
-    if path_cross_model==None: path_cross_model=base_lm
+    tokenizer_cross=AutoTokenizer.from_pretrained(base_cross_lm)
+    model_cross=AutoModel.from_pretrained(base_cross_lm)
 
-    tokenizer_cross=AutoTokenizer.from_pretrained(path_cross_model)
-    model_cross=AutoModel.from_pretrained(path_cross_model)
+    enc_cross=CrossEncoder(pretrained=model_cross)
+    if path_cross_model!=None:
+        enc_cross.load_state_dict(torch.load(path_cross_model))
 
-    enc_cross=CrossEncoder(pretrained=model_cross).to(device)
+    enc_cross.to(device)
     enc_cross.eval()
         
     ## 2. Evaluate Loaded LM
@@ -143,20 +159,64 @@ def distill(
     print("\nPseudo-Labeling..")
     with torch.no_grad():
         if direction=="bi2cross":
-            pseudo_label(
+            path_pseudo_labels=pseudo_label(
                 type=direction,
+                n_loop=n_loop,
+                path_dataset=path_dataset,
                 tokenizer=tokenizer_bi,
-                model=enc_bi,
-                n_loop=n_loop
+                model=enc_bi
             )
         elif direction=="cross2bi":
-            pseudo_label(
+            path_pseudo_labels=pseudo_label(
                 type=direction,
+                n_loop=n_loop,
+                path_dataset=path_dataset,
                 tokenizer=tokenizer_cross,
-                model=enc_cross,
-                n_loop=n_loop
+                model=enc_cross
             )
     print("Done!")
 
-    # 4. Distillation: Train Another (Bi <--> Cross) LM
-    # 5. Evaluate Newly Distilled LM
+    ## 4. Distillation: Train Another (Bi <--> Cross) LM
+    print("\nTraining..")
+    if direction=="bi2cross":
+        enc_cross.train()
+        model_distilled=train(
+            type=direction,
+            n_loop=n_loop,
+            path_dataset=path_pseudo_labels,
+            tokenizer=tokenizer_cross,
+            model=enc_cross,
+            **hyperparams
+        )
+    elif direction=="cross2bi":
+        enc_bi.train()
+        model_distilled=train(
+            type=direction,
+            n_loop=n_loop,
+            path_dataset=path_pseudo_labels,
+            tokenizer=tokenizer_bi,
+            model=enc_bi,
+            **hyperparams
+        )
+    print("Done!")
+        
+    ## 5. Evaluate Newly Distilled LM
+    model_distilled.eval()
+    if direction=="bi2cross":
+        print("\n"+str(n_loop)+"th (Newly Distilled) Cross-Encoder\n-----")
+
+        with torch.no_grad():
+            evaluate(
+                type="cross",
+                tokenizer=tokenizer_cross,
+                model=model_distilled
+            )
+    elif direction=="cross2bi":
+        print("\n"+str(n_loop)+"th (Newly Distilled) Bi-Encoder\n-----")
+
+        with torch.no_grad():
+            evaluate(
+                type="bi",
+                tokenizer=tokenizer_bi,
+                model=model_distilled
+            )
