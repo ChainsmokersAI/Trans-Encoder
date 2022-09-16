@@ -28,3 +28,14 @@ The codes are in [/notebook](https://github.com/ChainsmokersAI/Trans-Encoder/tre
 * Cross-to-Bi Encoder Distillation [[codes](https://github.com/ChainsmokersAI/Trans-Encoder/blob/main/notebook/3.%20Create%20Pseudo-Labels%20using%20Cross-Encoder%20%26%20Train%20Bi-Encoder.ipynb)]
 * **Full (Self-)Distillation** [[codes](https://github.com/ChainsmokersAI/Trans-Encoder/blob/main/notebook/4.%20Trans-Encoder%20(Distillation%20Loop).ipynb)]
 ### Results
+Experiments were conducted on single GeForce RTX 3090 GPU.<br/>
+All distilled models were evaluated on [STS Benchmark](https://ixa2.si.ehu.eus/stswiki/index.php/STSbenchmark) test set (Spearmanr).
+|Iteration|Direction|Cross-Encoder|Bi-Encoder|
+|:---:|:---:|:---:|:---:|
+|0|||80.10|
+|1|bi->cross|83.07||
+|1|cross->bi||80.98|
+|2|bi->cross|83.44||
+|2|cross->bi||81.01|
+|3|bi->cross|**83.56**||
+|3|cross->bi||**81.02**|
