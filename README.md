@@ -30,12 +30,12 @@ The codes are in [/notebook](https://github.com/ChainsmokersAI/Trans-Encoder/tre
 ### Results
 Experiments were conducted on single GeForce RTX 3090 GPU.<br/>
 All distilled models were evaluated on [STS Benchmark](https://ixa2.si.ehu.eus/stswiki/index.php/STSbenchmark) test set (Spearmanr).
-|Iteration|Direction|Cross-Encoder|Bi-Encoder|
-|:---:|:---:|:---:|:---:|
-|0|||80.10|
-|1|bi->cross|83.07||
-|1|cross->bi||80.98|
-|2|bi->cross|83.44||
-|2|cross->bi||81.01|
-|3|bi->cross|**83.56**||
-|3|cross->bi||**81.02**|
+|Iteration|Direction|Cross-Encoder|Bi-Encoder|Learning Rate|n_Batch|n_Epoch|
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+|0|||80.10||||
+|1|bi->cross|83.07||3e-5|32|5|
+|1|cross->bi||80.98|*3e-7*|16|1|
+|2|bi->cross|83.44||1e-5|32|5|
+|2|cross->bi||81.01|*3e-8*|16|1|
+|3|bi->cross|**83.56**||7e-7|32|5|
+|3|cross->bi||**81.02**|*1e-8*|16|1|
